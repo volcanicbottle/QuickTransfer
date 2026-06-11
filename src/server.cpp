@@ -81,7 +81,63 @@ void App::setup_routes() {
         },
         [this, sub](bool) { bus_.unsubscribe(sub); });
   });
+
+  // 历史记录
+  svr_.Get("/api/messages", [this](const httplib::Request& req, httplib::Response& res) {
+    auto peer = req.get_param_value("peer");
+    json arr = json::array();
+    for (auto& m : history_.list(peer)) arr.push_back(to_json(m));
+    res.set_content(arr.dump(), "application/json");
+  });
+
+  // 本机浏览器 → 发送文字
+  svr_.Post("/api/send-text", [this](const httplib::Request& req, httplib::Response& res) {
+    auto j = json::parse(req.body, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) { res.status = 400; return; }
+    std::string peer_id, text;
+    try {
+      peer_id = j.value("peer_id", "");
+      text = j.value("text", "");
+    } catch (const nlohmann::json::exception&) { res.status = 400; return; }
+    PeerInfo peer;
+    if (text.empty() || !discovery_->find(peer_id, peer)) { res.status = 400; return; }
+    Message m;
+    m.peer_id = peer_id;
+    m.direction = "out";
+    m.kind = "text";
+    m.body = text;
+    m.status = "pending";
+    history_.add(m);
+    send_text(peer, m);
+    m = history_.get(m.id);
+    publish_message("message", m);
+    res.set_content(to_json(m).dump(), "application/json");
+  });
+
+  // 其他电脑 → 接收文字
+  svr_.Post("/peer/text", [this](const httplib::Request& req, httplib::Response& res) {
+    auto j = json::parse(req.body, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) { res.status = 400; return; }
+    Message m;
+    try {
+      m.peer_id = j.value("from_id", "");
+      m.direction = "in";
+      m.kind = "text";
+      m.body = j.value("text", "");
+      m.status = "ok";
+    } catch (const nlohmann::json::exception&) { res.status = 400; return; }
+    if (m.peer_id.empty() || m.body.empty()) { res.status = 400; return; }
+    history_.add(m);
+    publish_message("message", m);
+    res.set_content("{}", "application/json");
+  });
 }
 
-void App::send_text(const PeerInfo&, const Message&) {}  // 任务 9 实现
+void App::send_text(const PeerInfo& peer, const Message& m) {
+  httplib::Client cli(peer.ip, peer.port);
+  cli.set_connection_timeout(3);
+  json j{{"from_id", cfg_.id}, {"from_name", cfg_.name}, {"text", m.body}};
+  auto r = cli.Post("/peer/text", j.dump(), "application/json");
+  history_.set_status(m.id, (r && r->status == 200) ? "ok" : "fail");
+}
 void App::start_file_send(long long) {}                  // 任务 11 实现
