@@ -25,6 +25,7 @@ History::History(const std::filesystem::path& db_file) {
   if (sqlite3_open(db_file.u8string().c_str(), &db_) != SQLITE_OK)
     throw std::runtime_error("无法打开数据库: " + db_file.string());
   exec_sql(db_, "PRAGMA journal_mode=WAL;");
+  exec_sql(db_, "PRAGMA busy_timeout=3000;");  // 同一 db 文件现在有 History/AuthStore 两个连接
   exec_sql(db_, R"sql(
 CREATE TABLE IF NOT EXISTS messages(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
