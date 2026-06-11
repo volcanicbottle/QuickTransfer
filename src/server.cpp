@@ -231,6 +231,35 @@ void App::setup_routes() {
     start_file_send(m.id);
     res.set_content(to_json(m).dump(), "application/json");
   });
+
+  // 重试发送失败的消息
+  svr_.Post("/api/retry", [this](const httplib::Request& req, httplib::Response& res) {
+    auto j = json::parse(req.body, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) { res.status = 400; return; }
+    long long id = 0;
+    try {
+      id = j.value("message_id", (long long)0);
+    } catch (const nlohmann::json::exception&) { res.status = 400; return; }
+    Message m = history_.get(id);
+    if (m.id == 0 || m.direction != "out" || m.status != "fail") {
+      res.status = 400;
+      return;
+    }
+    history_.set_status(m.id, "pending");
+    publish_message("message_update", history_.get(m.id));
+    if (m.kind == "text") {
+      PeerInfo peer;
+      if (discovery_->find(m.peer_id, peer)) {
+        send_text(peer, m);
+      } else {
+        history_.set_status(m.id, "fail");
+      }
+      publish_message("message_update", history_.get(m.id));
+    } else {
+      start_file_send(m.id);  // 文件：暂存还在（失败时不删除）
+    }
+    res.set_content("{}", "application/json");
+  });
 }
 
 void App::send_text(const PeerInfo& peer, const Message& m) {
