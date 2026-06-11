@@ -35,13 +35,16 @@ class AuthStore {
   sqlite3* db_ = nullptr;
 };
 
-// PIN 防爆破：连续失败 kMaxFailures 次锁定 kLockMs；时间由调用方传入便于测试
+// PIN 防爆破：连续失败 kMaxFailures 次锁定 kLockMs；每次失败后 kFailDelayMs 内
+// 直接拒绝（替代阻塞 worker 线程的 sleep）。时间由调用方传入便于测试。
 class PinGuard {
  public:
   static constexpr int kMaxFailures = 10;
-  static constexpr long long kLockMs = 300000;  // 5 分钟
+  static constexpr long long kLockMs = 300000;    // 5 分钟
+  static constexpr long long kFailDelayMs = 1000; // 失败后的节流窗口
 
-  bool locked(long long now);
+  bool locked(long long now);     // 处于 10 次锁定期
+  bool throttled(long long now);  // 处于单次失败后的节流窗口
   void record_failure(long long now);
   void record_success();
 
@@ -49,4 +52,5 @@ class PinGuard {
   std::mutex mu_;
   int failures_ = 0;
   long long locked_until_ = 0;
+  long long next_allowed_ = 0;
 };

@@ -25,7 +25,7 @@ void App::setup_auth_routes() {
   // 其他电脑 → 配对请求（凭本机 PIN 换共享密钥）
   svr_.Post("/peer/pair", [this](const httplib::Request& req, httplib::Response& res) {
     long long now = util::now_ms();
-    if (pin_guard_.locked(now)) { res.status = 429; return; }
+    if (pin_guard_.locked(now) || pin_guard_.throttled(now)) { res.status = 429; return; }
     auto j = json::parse(req.body, nullptr, false);
     if (j.is_discarded() || !j.is_object()) { res.status = 400; return; }
     std::string from_id, from_name, pin;
@@ -36,8 +36,7 @@ void App::setup_auth_routes() {
     } catch (const nlohmann::json::exception&) { res.status = 400; return; }
     if (from_id.empty()) { res.status = 400; return; }
     if (pin != cfg_.pin) {
-      pin_guard_.record_failure(now);
-      std::this_thread::sleep_for(std::chrono::seconds(1));  // 防爆破延迟
+      pin_guard_.record_failure(now);  // 之后 1 秒内一律 429（非阻塞节流，不占用 worker 线程）
       res.status = 403;
       return;
     }

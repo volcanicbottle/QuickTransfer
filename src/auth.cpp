@@ -141,9 +141,15 @@ bool PinGuard::locked(long long now) {
   return now < locked_until_;
 }
 
+bool PinGuard::throttled(long long now) {
+  std::lock_guard<std::mutex> lk(mu_);
+  return now < next_allowed_;
+}
+
 void PinGuard::record_failure(long long now) {
   std::lock_guard<std::mutex> lk(mu_);
   if (now < locked_until_) return;  // 锁定期间的失败不计数、不延长锁定
+  next_allowed_ = now + kFailDelayMs;
   if (++failures_ >= kMaxFailures) {
     locked_until_ = now + kLockMs;
     failures_ = 0;

@@ -83,6 +83,16 @@ TEST_CASE("PinGuard 锁定期间的失败不延长锁定") {
   CHECK_FALSE(g.locked(t0 + PinGuard::kLockMs));  // 仍按原时间到期，未被延长
 }
 
+TEST_CASE("PinGuard 单次失败后进入节流窗口") {
+  PinGuard g;
+  long long t0 = 1000000;
+  CHECK_FALSE(g.throttled(t0));
+  g.record_failure(t0);
+  CHECK(g.throttled(t0));
+  CHECK(g.throttled(t0 + PinGuard::kFailDelayMs - 1));
+  CHECK_FALSE(g.throttled(t0 + PinGuard::kFailDelayMs));  // 窗口结束
+}
+
 TEST_CASE("PinGuard 锁定到期后重新从零计数") {
   PinGuard g;
   long long t0 = 1000000;
