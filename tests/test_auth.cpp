@@ -51,3 +51,24 @@ TEST_CASE("AuthStore 手机注册与查询") {
   }
   fs::remove_all(dir);
 }
+
+TEST_CASE("PinGuard 连续失败10次锁定5分钟") {
+  PinGuard g;
+  long long t0 = 1000000;
+  CHECK_FALSE(g.locked(t0));
+  for (int i = 0; i < 9; ++i) g.record_failure(t0);
+  CHECK_FALSE(g.locked(t0));        // 9 次还没锁
+  g.record_failure(t0);             // 第 10 次
+  CHECK(g.locked(t0));
+  CHECK(g.locked(t0 + PinGuard::kLockMs - 1));
+  CHECK_FALSE(g.locked(t0 + PinGuard::kLockMs));  // 到期解锁
+}
+
+TEST_CASE("PinGuard 成功后清零计数") {
+  PinGuard g;
+  long long t0 = 1000000;
+  for (int i = 0; i < 9; ++i) g.record_failure(t0);
+  g.record_success();
+  for (int i = 0; i < 9; ++i) g.record_failure(t0);
+  CHECK_FALSE(g.locked(t0));        // 重新计数，9 次不锁
+}
