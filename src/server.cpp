@@ -1,5 +1,6 @@
 #include "server.h"
 #include <cstdio>
+#include <fstream>
 #include "json.hpp"
 #include "util.h"
 
@@ -127,6 +128,48 @@ void App::setup_routes() {
       m.status = "ok";
     } catch (const nlohmann::json::exception&) { res.status = 400; return; }
     if (m.peer_id.empty() || m.body.empty()) { res.status = 400; return; }
+    history_.add(m);
+    publish_message("message", m);
+    res.set_content("{}", "application/json");
+  });
+
+  // 其他电脑 → 接收文件（流式写 .part，完成后改名）
+  svr_.Post("/peer/file", [this](const httplib::Request& req, httplib::Response& res,
+                                 const httplib::ContentReader& reader) {
+    namespace fs = std::filesystem;
+    std::string name = req.get_param_value("name");
+    std::string from_id = req.get_param_value("from_id");
+    long long size = std::atoll(req.get_param_value("size").c_str());
+    if (name.empty() || from_id.empty()) { res.status = 400; return; }
+    // 文件名只取末段，防止路径穿越
+    name = fs::path(name).filename().string();
+    if (name.empty() || name == "." || name == "..") { res.status = 400; return; }
+    fs::create_directories(cfg_.download_dir);
+    fs::path part = util::unique_path(cfg_.download_dir, name + ".part");
+    std::ofstream ofs(part, std::ios::binary);
+    if (!ofs) { res.status = 500; return; }
+    reader([&](const char* data, size_t len) {
+      ofs.write(data, (std::streamsize)len);
+      return ofs.good();
+    });
+    ofs.close();
+    std::error_code ec;
+    bool ok = fs::exists(part) && (size <= 0 || (long long)fs::file_size(part, ec) == size);
+    if (!ok) {
+      fs::remove(part, ec);
+      res.status = 500;
+      return;
+    }
+    fs::path final_path = util::unique_path(cfg_.download_dir, name);
+    fs::rename(part, final_path, ec);
+    Message m;
+    m.peer_id = from_id;
+    m.direction = "in";
+    m.kind = "file";
+    m.file_name = final_path.filename().string();
+    m.file_size = (long long)fs::file_size(final_path, ec);
+    m.file_path = final_path.string();
+    m.status = "ok";
     history_.add(m);
     publish_message("message", m);
     res.set_content("{}", "application/json");
