@@ -11,7 +11,8 @@ using nlohmann::json;
 App::App(Config cfg, std::filesystem::path web_dir)
     : cfg_(std::move(cfg)),
       web_dir_(std::move(web_dir)),
-      history_(cfg_.db_path()) {}
+      history_(cfg_.db_path()),
+      auth_(cfg_.db_path()) {}
 
 bool App::run() {
   namespace fs = std::filesystem;
@@ -29,7 +30,8 @@ bool App::run() {
   discovery_->start([this] { bus_.publish(json{{"type", "peers"}}.dump()); });
 
   setup_routes();
-  std::printf("已启动：http://localhost:%d  （设备名：%s）\n", port_, cfg_.name.c_str());
+  std::printf("已启动：http://localhost:%d  （设备名：%s，配对 PIN：%s）\n", port_,
+              cfg_.name.c_str(), cfg_.pin.c_str());
   return svr_.listen_after_bind();
 }
 
@@ -130,6 +132,7 @@ void App::setup_routes() {
       m.status = "ok";
     } catch (const nlohmann::json::exception&) { res.status = 400; return; }
     if (m.peer_id.empty() || m.body.empty()) { res.status = 400; return; }
+    if (!check_pair_token(m.peer_id, req)) { res.status = 403; return; }
     history_.add(m);
     publish_message("message", m);
     res.set_content("{}", "application/json");
@@ -143,6 +146,7 @@ void App::setup_routes() {
     std::string from_id = req.get_param_value("from_id");
     long long size = std::atoll(req.get_param_value("size").c_str());
     if (name.empty() || from_id.empty()) { res.status = 400; return; }
+    if (!check_pair_token(from_id, req)) { res.status = 403; return; }
     // 文件名只取末段，防止路径穿越
     name = fs::path(name).filename().string();
     if (name.empty() || name == "." || name == "..") { res.status = 400; return; }
@@ -260,15 +264,27 @@ void App::setup_routes() {
     }
     res.set_content("{}", "application/json");
   });
+
+  setup_auth_routes();
 }
 
 void App::send_text(const PeerInfo& peer, const Message& m) {
+  std::string secret;
+  if (!auth_.get_pairing_secret(peer.id, secret)) {
+    history_.set_status(m.id, "fail");  // 未配对
+    return;
+  }
   httplib::Client cli(peer.ip, peer.port);
   cli.set_connection_timeout(3);
   cli.set_read_timeout(3);
   cli.set_write_timeout(3);
   json j{{"from_id", cfg_.id}, {"from_name", cfg_.name}, {"text", m.body}};
-  auto r = cli.Post("/peer/text", j.dump(), "application/json");
+  auto r = cli.Post("/peer/text", httplib::Headers{{"X-Pair-Token", secret}}, j.dump(),
+                    "application/json");
+  if (r && r->status == 403) {
+    auth_.remove_pairing(peer.id);  // 对方已不认这把密钥
+    bus_.publish(json{{"type", "peers"}}.dump());
+  }
   history_.set_status(m.id, (r && r->status == 200) ? "ok" : "fail");
 }
 void App::start_file_send(long long msg_id) {
@@ -277,7 +293,9 @@ void App::start_file_send(long long msg_id) {
     Message m = history_.get(msg_id);
     PeerInfo peer;
     bool ok = false;
-    if (m.id != 0 && discovery_->find(m.peer_id, peer) && fs::exists(m.file_path)) {
+    std::string secret;
+    if (m.id != 0 && discovery_->find(m.peer_id, peer) && fs::exists(m.file_path) &&
+        auth_.get_pairing_secret(m.peer_id, secret)) {
       httplib::Client cli(peer.ip, peer.port);
       cli.set_connection_timeout(3);
       cli.set_read_timeout(60);
@@ -291,7 +309,7 @@ void App::start_file_send(long long msg_id) {
                          "&from_name=" + util::url_encode(cfg_.name) +
                          "&size=" + std::to_string(total);
       auto r = cli.Post(
-          path, httplib::Headers{}, (size_t)total,
+          path, httplib::Headers{{"X-Pair-Token", secret}}, (size_t)total,
           [this, file, sent, last_pub, total, msg_id](size_t, size_t length,
                                                       httplib::DataSink& sink) {
             char buf[65536];
@@ -312,6 +330,10 @@ void App::start_file_send(long long msg_id) {
             return true;
           },
           "application/octet-stream");
+      if (r && r->status == 403) {
+        auth_.remove_pairing(m.peer_id);
+        bus_.publish(json{{"type", "peers"}}.dump());
+      }
       ok = r && r->status == 200;
     }
     history_.set_status(msg_id, ok ? "ok" : "fail");
