@@ -72,3 +72,24 @@ TEST_CASE("PinGuard 成功后清零计数") {
   for (int i = 0; i < 9; ++i) g.record_failure(t0);
   CHECK_FALSE(g.locked(t0));        // 重新计数，9 次不锁
 }
+
+TEST_CASE("PinGuard 锁定期间的失败不延长锁定") {
+  PinGuard g;
+  long long t0 = 1000000;
+  for (int i = 0; i < 10; ++i) g.record_failure(t0);
+  CHECK(g.locked(t0));
+  // 锁定期间继续疯狂尝试（攻击者行为）
+  for (int i = 0; i < 50; ++i) g.record_failure(t0 + 1000);
+  CHECK_FALSE(g.locked(t0 + PinGuard::kLockMs));  // 仍按原时间到期，未被延长
+}
+
+TEST_CASE("PinGuard 锁定到期后重新从零计数") {
+  PinGuard g;
+  long long t0 = 1000000;
+  for (int i = 0; i < 10; ++i) g.record_failure(t0);
+  long long after = t0 + PinGuard::kLockMs;  // 已到期
+  for (int i = 0; i < 9; ++i) g.record_failure(after);
+  CHECK_FALSE(g.locked(after));  // 到期后需再失败 10 次才会重新锁定
+  g.record_failure(after);
+  CHECK(g.locked(after));
+}
