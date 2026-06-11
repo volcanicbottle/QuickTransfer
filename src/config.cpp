@@ -30,11 +30,15 @@ Config Config::load(const std::filesystem::path& data_dir) {
     std::ifstream in(file);
     auto j = nlohmann::json::parse(in, nullptr, false);
     if (!j.is_discarded()) {
-      c.id = j.value("id", c.id);
-      c.name = j.value("name", c.name);
-      c.port = j.value("port", c.port);
-      if (j.contains("download_dir"))
-        c.download_dir = fs::path(j["download_dir"].get<std::string>());
+      try {
+        c.id = j.value("id", c.id);
+        c.name = j.value("name", c.name);
+        c.port = j.value("port", c.port);
+        if (j.contains("download_dir"))
+          c.download_dir = fs::path(j["download_dir"].get<std::string>());
+      } catch (const nlohmann::json::exception&) {
+        // 字段类型错误：保留默认值
+      }
     }
   }
   c.save();

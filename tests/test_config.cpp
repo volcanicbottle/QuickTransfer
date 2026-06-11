@@ -2,6 +2,7 @@
 #include "config.h"
 #include "util.h"
 #include <filesystem>
+#include <fstream>
 
 TEST_CASE("Config 首次生成默认值并持久化设备ID") {
   namespace fs = std::filesystem;
@@ -18,5 +19,18 @@ TEST_CASE("Config 首次生成默认值并持久化设备ID") {
   // 派生路径
   CHECK(c1.db_path() == dir / "history.db");
   CHECK(c1.staging_dir() == dir / "staging");
+  fs::remove_all(dir);
+}
+
+TEST_CASE("Config 对类型错误的 config.json 降级到默认值而不崩溃") {
+  namespace fs = std::filesystem;
+  auto dir = fs::temp_directory_path() / ("dd_cfg_bad_" + util::gen_id());
+  fs::create_directories(dir);
+  std::ofstream(dir / "config.json")
+      << R"({"id": 123, "name": 456, "port": "not-a-number", "download_dir": 789})";
+  Config c;
+  CHECK_NOTHROW(c = Config::load(dir));
+  CHECK(c.id.size() == 16);   // 回退到新生成的ID
+  CHECK(c.port == 8520);      // 回退到默认端口
   fs::remove_all(dir);
 }
