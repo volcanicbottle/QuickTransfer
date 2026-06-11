@@ -31,7 +31,7 @@ function showLogin() {
   $('#login-btn').onclick = async () => {
     const name = $('#login-name').value.trim();
     const pin = $('#login-pin').value.trim();
-    if (!name || pin.length !== 6) {
+    if (!name || !/^\d{6}$/.test(pin)) {
       $('#login-err').textContent = '请填写设备名和 6 位 PIN';
       return;
     }
