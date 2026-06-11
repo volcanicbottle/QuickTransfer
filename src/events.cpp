@@ -17,6 +17,9 @@ void EventBus::publish(const std::string& payload) {
   std::lock_guard<std::mutex> lk(mu_);
   for (auto& s : subs_) {
     std::lock_guard<std::mutex> lk2(s->mu);
+    // 订阅者假死（浏览器断开未检测到）时丢弃最旧事件，防止无限堆积；
+    // 前端重连后会整体重新拉取，丢事件无害
+    if (s->queue.size() >= kMaxQueue) s->queue.pop_front();
     s->queue.push_back(payload);
     s->cv.notify_one();
   }
