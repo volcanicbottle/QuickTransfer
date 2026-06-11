@@ -56,6 +56,7 @@ async function refreshPeers() {
 
 function renderPeers() {
   const el = $('#peer-list');
+  const wasOpen = !!el.querySelector('details')?.open;  // 重建后保留折叠区的展开状态
   el.innerHTML = '';
   const mkRow = (p) => {
     const d = document.createElement('div');
@@ -77,6 +78,7 @@ function renderPeers() {
       for (const p of unpaired) el.appendChild(mkRow(p));  // 还没配对过：平铺方便首次配对
     } else {
       const det = document.createElement('details');
+      det.open = wasOpen;
       const sum = document.createElement('summary');
       sum.textContent = `未配对设备 (${unpaired.length})`;
       det.appendChild(sum);
