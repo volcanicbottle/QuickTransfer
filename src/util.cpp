@@ -41,7 +41,9 @@ std::string url_encode(const std::string& s) {
   static const char* hex = "0123456789ABCDEF";
   std::string out;
   for (unsigned char c : s) {
-    if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+    bool unreserved = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+                      (c >= 'a' && c <= 'z');
+    if (unreserved || c == '-' || c == '_' || c == '.' || c == '~') {
       out += (char)c;
     } else {
       out += '%';
