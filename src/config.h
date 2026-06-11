@@ -6,6 +6,7 @@ struct Config {
   std::string id;
   std::string name;
   int port = 8520;
+  std::string pin;  // 6 位数字配对 PIN，首启生成
   std::filesystem::path data_dir;       // 运行时指定，不序列化
   std::filesystem::path download_dir;
 

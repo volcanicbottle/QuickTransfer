@@ -34,3 +34,14 @@ TEST_CASE("Config 对类型错误的 config.json 降级到默认值而不崩溃"
   CHECK(c.port == 8520);      // 回退到默认端口
   fs::remove_all(dir);
 }
+
+TEST_CASE("Config 首次生成6位数字PIN并持久化") {
+  namespace fs = std::filesystem;
+  auto dir = fs::temp_directory_path() / ("dd_cfg_pin_" + util::gen_id());
+  auto c1 = Config::load(dir);
+  CHECK(c1.pin.size() == 6);
+  CHECK(c1.pin.find_first_not_of("0123456789") == std::string::npos);
+  auto c2 = Config::load(dir);
+  CHECK(c2.pin == c1.pin);
+  fs::remove_all(dir);
+}
