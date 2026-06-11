@@ -1,3 +1,26 @@
 <!DOCTYPE html>
-<html lang="zh"><head><meta charset="utf-8"><title>多端互通</title></head>
-<body>界面开发中（任务 13 替换）</body></html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多端互通</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="sidebar">
+  <div id="self-name">…</div>
+  <div id="peer-list"></div>
+</div>
+<div id="main">
+  <div id="chat-header">选择左侧设备开始传输</div>
+  <div id="messages"></div>
+  <div id="composer" hidden>
+    <button id="file-btn" title="发送文件">📎</button>
+    <input id="file-input" type="file" multiple hidden>
+    <textarea id="text-input" rows="2" placeholder="输入消息，Enter 发送；拖文件到聊天区可直接发送"></textarea>
+    <button id="send-btn">发送</button>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
