@@ -60,7 +60,7 @@ void App::setup_auth_routes() {
       name = j.value("name", "");
       pin = j.value("pin", "");
     } catch (const nlohmann::json::exception&) { res.status = 400; return; }
-    if (phone_id.size() < 8 || phone_id.size() > 64 || name.empty()) {
+    if (phone_id.size() < 8 || phone_id.size() > 64 || name.empty() || name.size() > 128) {
       res.status = 400;
       return;
     }
