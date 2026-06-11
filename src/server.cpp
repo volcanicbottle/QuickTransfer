@@ -1,6 +1,8 @@
 #include "server.h"
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
+#include <thread>
 #include "json.hpp"
 #include "util.h"
 
@@ -179,6 +181,46 @@ void App::setup_routes() {
     publish_message("message", m);
     res.set_content("{}", "application/json");
   });
+
+  // 本机浏览器 → 上传文件到暂存区并后台推送给目标设备
+  svr_.Post("/api/send-file", [this](const httplib::Request& req, httplib::Response& res,
+                                     const httplib::ContentReader& reader) {
+    namespace fs = std::filesystem;
+    std::string peer_id = req.get_param_value("peer");
+    PeerInfo peer;
+    if (!discovery_->find(peer_id, peer)) { res.status = 400; return; }
+    fs::create_directories(cfg_.staging_dir());
+    std::string filename;
+    fs::path staged;
+    auto ofs = std::make_shared<std::ofstream>();
+    reader(
+        [&](const httplib::MultipartFormData& file) {
+          filename = fs::path(file.filename).filename().string();
+          if (filename.empty()) filename = "未命名";
+          staged = util::unique_path(cfg_.staging_dir(), filename);
+          ofs->open(staged, std::ios::binary);
+          return ofs->good();
+        },
+        [&](const char* data, size_t len) {
+          ofs->write(data, (std::streamsize)len);
+          return ofs->good();
+        });
+    ofs->close();
+    std::error_code ec;
+    if (filename.empty() || !fs::exists(staged)) { res.status = 400; return; }
+    Message m;
+    m.peer_id = peer_id;
+    m.direction = "out";
+    m.kind = "file";
+    m.file_name = filename;
+    m.file_size = (long long)fs::file_size(staged, ec);
+    m.file_path = staged.string();
+    m.status = "pending";
+    history_.add(m);
+    publish_message("message", m);
+    start_file_send(m.id);
+    res.set_content(to_json(m).dump(), "application/json");
+  });
 }
 
 void App::send_text(const PeerInfo& peer, const Message& m) {
@@ -190,4 +232,55 @@ void App::send_text(const PeerInfo& peer, const Message& m) {
   auto r = cli.Post("/peer/text", j.dump(), "application/json");
   history_.set_status(m.id, (r && r->status == 200) ? "ok" : "fail");
 }
-void App::start_file_send(long long) {}                  // 任务 11 实现
+void App::start_file_send(long long msg_id) {
+  std::thread([this, msg_id] {
+    namespace fs = std::filesystem;
+    Message m = history_.get(msg_id);
+    PeerInfo peer;
+    bool ok = false;
+    if (m.id != 0 && discovery_->find(m.peer_id, peer) && fs::exists(m.file_path)) {
+      httplib::Client cli(peer.ip, peer.port);
+      cli.set_connection_timeout(3);
+      cli.set_read_timeout(60);
+      cli.set_write_timeout(30);
+      auto file = std::make_shared<std::ifstream>(m.file_path, std::ios::binary);
+      long long total = m.file_size;
+      auto sent = std::make_shared<long long>(0);
+      auto last_pub = std::make_shared<long long>(0);
+      std::string path = "/peer/file?name=" + util::url_encode(m.file_name) +
+                         "&from_id=" + util::url_encode(cfg_.id) +
+                         "&from_name=" + util::url_encode(cfg_.name) +
+                         "&size=" + std::to_string(total);
+      auto r = cli.Post(
+          path, httplib::Headers{}, (size_t)total,
+          [this, file, sent, last_pub, total, msg_id](size_t, size_t length,
+                                                      httplib::DataSink& sink) {
+            char buf[65536];
+            size_t want = std::min(length, sizeof(buf));
+            file->read(buf, (std::streamsize)want);
+            std::streamsize n = file->gcount();
+            if (n <= 0) return false;
+            if (!sink.write(buf, (size_t)n)) return false;
+            *sent += n;
+            long long now = util::now_ms();
+            if (now - *last_pub > 200 || *sent >= total) {
+              *last_pub = now;
+              bus_.publish(json{{"type", "progress"},
+                                {"message_id", msg_id},
+                                {"sent", *sent},
+                                {"total", total}}.dump());
+            }
+            return true;
+          },
+          "application/octet-stream");
+      ok = r && r->status == 200;
+    }
+    history_.set_status(msg_id, ok ? "ok" : "fail");
+    if (ok) {
+      std::error_code ec;
+      fs::remove(m.file_path, ec);          // 发送成功删除暂存
+      history_.set_file_path(msg_id, "");   // 历史只留文件名和大小
+    }
+    publish_message("message_update", history_.get(msg_id));
+  }).detach();
+}
