@@ -136,6 +136,8 @@ void App::setup_routes() {
 void App::send_text(const PeerInfo& peer, const Message& m) {
   httplib::Client cli(peer.ip, peer.port);
   cli.set_connection_timeout(3);
+  cli.set_read_timeout(3);
+  cli.set_write_timeout(3);
   json j{{"from_id", cfg_.id}, {"from_name", cfg_.name}, {"text", m.body}};
   auto r = cli.Post("/peer/text", j.dump(), "application/json");
   history_.set_status(m.id, (r && r->status == 200) ? "ok" : "fail");
