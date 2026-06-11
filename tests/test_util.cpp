@@ -32,3 +32,19 @@ TEST_CASE("url_encode 编码非安全字符") {
 TEST_CASE("now_ms 返回合理时间戳") {
   CHECK(util::now_ms() > 1700000000000LL);
 }
+
+TEST_CASE("gen_secret 生成32位十六进制") {
+  auto s = util::gen_secret();
+  CHECK(s.size() == 32);
+  CHECK(s.find_first_not_of("0123456789abcdef") == std::string::npos);
+  CHECK(s != util::gen_secret());
+}
+
+TEST_CASE("get_cookie_value 解析 Cookie 头") {
+  CHECK(util::get_cookie_value("qt_token=abc123", "qt_token") == "abc123");
+  CHECK(util::get_cookie_value("a=1; qt_token=xyz; b=2", "qt_token") == "xyz");
+  CHECK(util::get_cookie_value("a=1;qt_token=noSpace", "qt_token") == "noSpace");
+  CHECK(util::get_cookie_value("token=other", "qt_token") == "");
+  CHECK(util::get_cookie_value("", "qt_token") == "");
+  CHECK(util::get_cookie_value("myqt_token=bad; qt_token=good", "qt_token") == "good");
+}

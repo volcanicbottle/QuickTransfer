@@ -59,4 +59,24 @@ long long now_ms() {
   return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
+std::string gen_secret() { return gen_id() + gen_id(); }
+
+std::string get_cookie_value(const std::string& cookie_header, const std::string& name) {
+  size_t pos = 0;
+  while (pos < cookie_header.size()) {
+    size_t end = cookie_header.find(';', pos);
+    if (end == std::string::npos) end = cookie_header.size();
+    std::string item = cookie_header.substr(pos, end - pos);
+    size_t start = item.find_first_not_of(' ');
+    if (start != std::string::npos) {
+      item = item.substr(start);
+      size_t eq = item.find('=');
+      if (eq != std::string::npos && item.substr(0, eq) == name)
+        return item.substr(eq + 1);
+    }
+    pos = end + 1;
+  }
+  return "";
+}
+
 }  // namespace util
