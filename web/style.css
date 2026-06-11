@@ -1,4 +1,6 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
+/* hidden 属性必须赢过任何 display 规则（#login/#composer 都设了 display:flex） */
+[hidden] { display: none !important; }
 html, body { height: 100%; font-family: system-ui, "Microsoft YaHei", sans-serif; }
 body { display: flex; background: #f5f5f5; }
 

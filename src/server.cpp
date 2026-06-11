@@ -63,6 +63,8 @@ void App::setup_routes() {
     PhoneInfo ph;
     if (phone_from_request(req, ph))
       return httplib::Server::HandlerResponse::Unhandled;
+    std::fprintf(stderr, "鉴权: 拒绝远程无凭证访问 %s（来源 %s）\n", p.c_str(),
+                 req.remote_addr.c_str());
     res.status = 401;
     res.set_content("{\"error\":\"unauthorized\"}", "application/json");
     return httplib::Server::HandlerResponse::Handled;
