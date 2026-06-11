@@ -1,5 +1,7 @@
 # 多端互通
 
+[![CI](https://github.com/volcanicbottle/QuickTransfer/actions/workflows/ci.yml/badge.svg)](https://github.com/volcanicbottle/QuickTransfer/actions/workflows/ci.yml)
+
 类似微信文件传输助手的局域网互传工具：聊天式界面，支持文字消息与文件传输，
 自动发现同一局域网内的设备，历史记录本地保存（SQLite）。
 
@@ -9,6 +11,16 @@
 sudo apt install g++ cmake          # 如未安装
 cmake -B build && cmake --build build -j
 ```
+
+## 构建（macOS）
+
+```bash
+xcode-select --install               # 如未安装命令行工具
+brew install cmake                   # 如未安装
+cmake -B build && cmake --build build -j
+```
+
+首次运行时 macOS 会弹"是否允许接收传入网络连接"，选允许。
 
 ## 构建（Windows）
 

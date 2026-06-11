@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 配置
+        run: cmake -B build
+
+      - name: 构建
+        run: cmake --build build --config Release -j 4
+
+      - name: 单元测试 (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: ./build/unit_tests
+
+      - name: 单元测试 (Windows)
+        if: runner.os == 'Windows'
+        run: ./build/Release/unit_tests.exe
