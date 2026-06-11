@@ -57,20 +57,51 @@ async function refreshPeers() {
 function renderPeers() {
   const el = $('#peer-list');
   el.innerHTML = '';
-  for (const p of peers) {
+  const mkRow = (p) => {
     const d = document.createElement('div');
     d.className = 'peer' + (current === p.id ? ' active' : '') + (p.online ? '' : ' offline');
     const dot = document.createElement('span');
     dot.className = 'dot';
     const name = document.createElement('span');
     name.className = 'pname';
-    name.textContent = p.name;
+    name.textContent = (p.type === 'phone' ? '📱 ' : '💻 ') + p.name + (p.paired ? '' : ' 🔒');
     d.append(dot, name);
-    d.onclick = () => selectPeer(p.id);
-    el.appendChild(d);
+    d.onclick = () => (p.paired ? selectPeer(p.id) : pairWith(p));
+    return d;
+  };
+  const paired = peers.filter((p) => p.paired);
+  const unpaired = peers.filter((p) => !p.paired);
+  for (const p of paired) el.appendChild(mkRow(p));
+  if (unpaired.length) {
+    if (!paired.length) {
+      for (const p of unpaired) el.appendChild(mkRow(p));  // 还没配对过：平铺方便首次配对
+    } else {
+      const det = document.createElement('details');
+      const sum = document.createElement('summary');
+      sum.textContent = `未配对设备 (${unpaired.length})`;
+      det.appendChild(sum);
+      for (const p of unpaired) det.appendChild(mkRow(p));
+      el.appendChild(det);
+    }
   }
   if (!peers.length) {
     el.innerHTML = '<div class="empty">正在搜索局域网设备…<br>请确认对方已启动本程序</div>';
+  }
+}
+
+async function pairWith(p) {
+  const pin = prompt(`与「${p.name}」配对\n请输入对方屏幕上显示的 6 位 PIN：`);
+  if (!pin) return;
+  try {
+    await api('/api/pair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peer_id: p.id, pin: pin.trim() }),
+    });
+    await refreshPeers();
+  } catch (e) {
+    alert(String(e).includes('429') ? '对方已锁定，请 5 分钟后再试'
+                                    : '配对失败：PIN 错误或对方不在线');
   }
 }
 

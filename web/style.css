@@ -53,3 +53,8 @@ body.phone #sidebar { display: none; }
 body.phone .bubble { max-width: 85%; }
 .dl { display: inline-block; margin-top: 6px; font-size: 13px; color: #07c160;
       text-decoration: none; font-weight: bold; }
+
+#peer-list details { border-top: 1px solid #444; }
+#peer-list summary { padding: 12px 14px; color: #888; font-size: 13px; cursor: pointer;
+                     list-style-position: inside; }
+#peer-list details .peer { padding-left: 24px; }
