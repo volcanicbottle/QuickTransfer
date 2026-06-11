@@ -148,10 +148,10 @@ void App::setup_auth_routes() {
     if (!phone_from_request(req, ph)) { res.status = 401; return; }
     fs::create_directories(cfg_.download_dir);
     std::string filename;
-    fs::path target;
+    fs::path part;
     auto ofs = std::make_shared<std::ofstream>();
     bool skipping = false;  // 只收第一个 file part（与 /api/send-file 同惯例）
-    reader(
+    bool complete = reader(
         [&](const httplib::MultipartFormData& file) {
           if (ofs->is_open() || !filename.empty()) {
             skipping = true;
@@ -159,8 +159,8 @@ void App::setup_auth_routes() {
           }
           filename = fs::path(file.filename).filename().string();
           if (filename.empty()) filename = "未命名";
-          target = util::unique_path(cfg_.download_dir, filename);
-          ofs->open(target, std::ios::binary);
+          part = util::unique_path(cfg_.download_dir, filename + ".part");
+          ofs->open(part, std::ios::binary);
           return ofs->good();
         },
         [&](const char* data, size_t len) {
@@ -170,9 +170,16 @@ void App::setup_auth_routes() {
         });
     if (ofs->is_open()) ofs->close();
     std::error_code ec;
-    if (filename.empty() || !fs::exists(target)) {
-      if (!target.empty()) fs::remove(target, ec);
+    if (!complete || filename.empty() || !fs::exists(part)) {
+      if (!part.empty()) fs::remove(part, ec);  // 中断/失败：清理半截文件
       res.status = 400;
+      return;
+    }
+    fs::path target = util::unique_path(cfg_.download_dir, filename);
+    fs::rename(part, target, ec);
+    if (ec) {
+      fs::remove(part, ec);
+      res.status = 500;
       return;
     }
     Message m;
