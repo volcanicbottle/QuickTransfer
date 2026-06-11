@@ -2,6 +2,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <iomanip>
 #include <random>
 #include <sstream>
 
@@ -59,7 +60,15 @@ long long now_ms() {
   return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-std::string gen_secret() { return gen_id() + gen_id(); }
+std::string gen_secret() {
+  // 直接从 random_device 取满 128 位熵——这是配对密钥/手机 token，
+  // 不能走 gen_id 的 mt19937（仅 32 位种子，熵不足且输出泄漏可还原状态）
+  std::random_device rd;
+  std::ostringstream os;
+  os << std::hex << std::setfill('0');
+  for (int i = 0; i < 4; ++i) os << std::setw(8) << (uint32_t)rd();
+  return os.str();
+}
 
 std::string get_cookie_value(const std::string& cookie_header, const std::string& name) {
   size_t pos = 0;
