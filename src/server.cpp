@@ -35,7 +35,9 @@ void App::publish_message(const char* type, const Message& m) {
 }
 
 void App::setup_routes() {
-  svr_.set_mount_point("/", web_dir_.string());
+  if (!svr_.set_mount_point("/", web_dir_.string()))
+    std::fprintf(stderr, "警告：静态目录 %s 不存在，页面将不可用\n",
+                 web_dir_.string().c_str());
 
   svr_.Get("/api/self", [this](const httplib::Request&, httplib::Response& res) {
     json j{{"id", cfg_.id}, {"name", cfg_.name}, {"port", port_}};
