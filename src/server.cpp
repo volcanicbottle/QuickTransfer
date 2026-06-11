@@ -162,6 +162,11 @@ void App::setup_routes() {
     }
     fs::path final_path = util::unique_path(cfg_.download_dir, name);
     fs::rename(part, final_path, ec);
+    if (ec) {
+      fs::remove(part, ec);
+      res.status = 500;
+      return;
+    }
     Message m;
     m.peer_id = from_id;
     m.direction = "in";
