@@ -221,7 +221,8 @@ void App::setup_auth_routes() {
     auto size = fs::file_size(fs::path(m.file_path), ec);
     if (!*file || ec) { res.status = 404; return; }
     res.set_header("Content-Disposition",
-                   "attachment; filename*=UTF-8''" + util::url_encode(m.file_name));
+                   "attachment; filename=\"download\"; filename*=UTF-8''" +
+                       util::url_encode(m.file_name));
     res.set_content_provider(
         (size_t)size, "application/octet-stream",
         [file](size_t offset, size_t length, httplib::DataSink& sink) {
