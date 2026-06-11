@@ -35,3 +35,21 @@ body { display: flex; background: #f5f5f5; }
 #composer button { border: none; border-radius: 6px; padding: 9px 16px; cursor: pointer; font: inherit; }
 #send-btn { background: #07c160; color: #fff; }
 #file-btn { background: #eee; }
+
+#self-pin { padding: 8px 14px; font-size: 13px; color: #aaa; border-bottom: 1px solid #444; }
+
+#login { position: fixed; inset: 0; background: #f5f5f5; display: flex;
+         align-items: center; justify-content: center; z-index: 10; }
+#login-box { background: #fff; padding: 28px 24px; border-radius: 12px;
+             box-shadow: 0 2px 12px rgba(0,0,0,.12); width: min(90vw, 320px);
+             display: flex; flex-direction: column; gap: 12px; }
+#login-box h2 { font-size: 18px; }
+#login-box input { border: 1px solid #ccc; border-radius: 6px; padding: 10px; font: inherit; }
+#login-box button { background: #07c160; color: #fff; border: none; border-radius: 6px;
+                    padding: 11px; font: inherit; cursor: pointer; }
+#login-err { color: #e53935; font-size: 13px; min-height: 1em; }
+
+body.phone #sidebar { display: none; }
+body.phone .bubble { max-width: 85%; }
+.dl { display: inline-block; margin-top: 6px; font-size: 13px; color: #07c160;
+      text-decoration: none; font-weight: bold; }

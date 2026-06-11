@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-let self = null, peers = [], current = null, messages = [];
+let self = null, peers = [], current = null, messages = [], phoneMode = false;
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -15,6 +15,39 @@ function fmtSize(n) {
 }
 
 function fmtTime(ts) { return new Date(ts).toLocaleString('zh-CN'); }
+
+function phoneId() {
+  let id = localStorage.getItem('qt_phone_id');
+  if (!id) {
+    id = [...crypto.getRandomValues(new Uint8Array(8))]
+      .map((b) => b.toString(16).padStart(2, '0')).join('');
+    localStorage.setItem('qt_phone_id', id);
+  }
+  return id;
+}
+
+function showLogin() {
+  $('#login').hidden = false;
+  $('#login-btn').onclick = async () => {
+    const name = $('#login-name').value.trim();
+    const pin = $('#login-pin').value.trim();
+    if (!name || pin.length !== 6) {
+      $('#login-err').textContent = '请填写设备名和 6 位 PIN';
+      return;
+    }
+    try {
+      await api('/api/phone/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone_id: phoneId(), name, pin }),
+      });
+      location.reload();
+    } catch (e) {
+      $('#login-err').textContent = String(e).includes('429')
+        ? '尝试次数过多，请稍后再试' : 'PIN 错误，请核对电脑屏幕上的数字';
+    }
+  };
+}
 
 async function refreshPeers() {
   peers = await api('/api/peers');
@@ -52,8 +85,9 @@ async function selectPeer(id) {
 }
 
 function msgEl(m) {
+  const mine = phoneMode ? m.direction === 'in' : m.direction === 'out';
   const d = document.createElement('div');
-  d.className = 'msg ' + m.direction + (m.status === 'fail' ? ' fail' : '');
+  d.className = 'msg ' + (mine ? 'out' : 'in') + (m.status === 'fail' ? ' fail' : '');
   d.dataset.id = m.id;
   const b = document.createElement('div');
   b.className = 'bubble';
@@ -66,8 +100,17 @@ function msgEl(m) {
     const fmeta = document.createElement('div');
     fmeta.className = 'fmeta';
     fmeta.textContent = fmtSize(m.file_size) +
-      (m.direction === 'in' && m.file_path ? ' · 已保存到 ' + m.file_path : '');
+      (!phoneMode && m.direction === 'in' && m.file_path ? ' · 已保存到 ' + m.file_path : '');
     b.append(fname, fmeta);
+    const downloadable = m.status === 'ok' && m.file_path &&
+      (phoneMode ? m.direction === 'out' : true);
+    if (downloadable) {
+      const a = document.createElement('a');
+      a.className = 'dl';
+      a.href = '/api/file?id=' + m.id;
+      a.textContent = '⬇ 下载';
+      b.appendChild(a);
+    }
     if (m.status === 'pending') {
       const bar = document.createElement('div');
       bar.className = 'bar';
@@ -118,11 +161,17 @@ async function sendText() {
   if (!t || !current) return;
   $('#text-input').value = '';
   try {
-    const m = await api('/api/send-text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ peer_id: current, text: t }),
-    });
+    const m = phoneMode
+      ? await api('/api/phone/send-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: t }),
+        })
+      : await api('/api/send-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ peer_id: current, text: t }),
+        });
     upsertMessage(m);
   } catch (e) {
     $('#text-input').value = t;  // 失败把内容还给输入框，不能静默丢
@@ -137,10 +186,10 @@ async function sendFiles(files) {
     const fd = new FormData();
     fd.append('file', f);
     try {
-      const m = await api('/api/send-file?peer=' + encodeURIComponent(current), {
-        method: 'POST',
-        body: fd,
-      });
+      const url = phoneMode
+        ? '/api/phone/send-file'
+        : '/api/send-file?peer=' + encodeURIComponent(current);
+      const m = await api(url, { method: 'POST', body: fd });
       upsertMessage(m);
     } catch (e) {
       failed.push(f.name);  // 单个失败不中断后续文件
@@ -151,13 +200,16 @@ async function sendFiles(files) {
 
 const es = new EventSource('/api/events');
 es.onopen = () => {
-  // SSE 断线重连后补拉当前会话，找回断线窗口期丢失的消息
-  if (current) selectPeer(current);
-  refreshPeers();
+  if (current) {
+    api('/api/messages?peer=' + encodeURIComponent(current))
+      .then((ms) => { messages = ms; renderMessages(); })
+      .catch(() => {});
+  }
+  if (!phoneMode) refreshPeers();
 };
 es.onmessage = (e) => {
   const ev = JSON.parse(e.data);
-  if (ev.type === 'peers') refreshPeers();
+  if (ev.type === 'peers' && !phoneMode) refreshPeers();
   if (ev.type === 'message' || ev.type === 'message_update') upsertMessage(ev.message);
   if (ev.type === 'progress') {
     const el = document.querySelector(`.msg[data-id="${ev.message_id}"] .bar i`);
@@ -184,9 +236,27 @@ $('#messages').addEventListener('drop', (e) => {
 });
 
 (async () => {
-  self = await api('/api/self');
-  $('#self-name').textContent = '本机：' + self.name;
-  document.title = '多端互通 - ' + self.name;
-  await refreshPeers();
-  setInterval(refreshPeers, 5000);  // 兜底轮询，处理设备下线
+  try {
+    self = await api('/api/self');
+  } catch (e) {
+    if (String(e).includes('401')) { showLogin(); return; }
+    throw e;
+  }
+  if (self.is_remote) {
+    phoneMode = true;
+    document.body.classList.add('phone');
+    document.title = '多端互通 - ' + self.name;
+    $('#chat-header').textContent = self.name;
+    $('#composer').hidden = false;
+    current = phoneId();
+    messages = await api('/api/messages?peer=' + encodeURIComponent(current));
+    renderMessages();
+    setInterval(() => api('/api/phone/heartbeat', { method: 'POST' }).catch(() => {}), 10000);
+  } else {
+    $('#self-name').textContent = '本机：' + self.name;
+    $('#self-pin').textContent = '配对 PIN：' + self.pin;
+    document.title = '多端互通 - ' + self.name;
+    await refreshPeers();
+    setInterval(refreshPeers, 5000);
+  }
 })();

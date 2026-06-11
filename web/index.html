@@ -9,6 +9,7 @@
 <body>
 <div id="sidebar">
   <div id="self-name">…</div>
+  <div id="self-pin"></div>
   <div id="peer-list"></div>
 </div>
 <div id="main">
@@ -19,6 +20,15 @@
     <input id="file-input" type="file" multiple hidden>
     <textarea id="text-input" rows="2" placeholder="输入消息，Enter 发送；拖文件到聊天区可直接发送"></textarea>
     <button id="send-btn">发送</button>
+  </div>
+</div>
+<div id="login" hidden>
+  <div id="login-box">
+    <h2>连接到电脑</h2>
+    <input id="login-name" placeholder="给这台设备起个名字（如 iPhone）" maxlength="20">
+    <input id="login-pin" placeholder="电脑屏幕上的 6 位 PIN" inputmode="numeric" maxlength="6">
+    <button id="login-btn">连接</button>
+    <div id="login-err"></div>
   </div>
 </div>
 <script src="app.js"></script>
