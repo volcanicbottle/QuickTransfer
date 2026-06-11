@@ -1,0 +1,20 @@
+cmake_minimum_required(VERSION 3.16)
+project(duoduan CXX C)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
+
+add_library(sqlite3_lib STATIC third_party/sqlite3.c)
+target_include_directories(sqlite3_lib PUBLIC third_party)
+
+find_package(Threads REQUIRED)
+
+file(GLOB APP_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+add_executable(duoduan ${APP_SOURCES})
+target_include_directories(duoduan PRIVATE src third_party)
+target_link_libraries(duoduan PRIVATE sqlite3_lib Threads::Threads ${CMAKE_DL_LIBS})
+if(WIN32)
+  target_link_libraries(duoduan PRIVATE ws2_32)
+endif()
