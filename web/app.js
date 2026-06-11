@@ -90,7 +90,7 @@ function msgEl(m) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message_id: m.id }),
-      });
+      }).catch(() => alert('重试请求失败，请稍后再试'));
     };
     meta.appendChild(r);
   }
@@ -117,28 +117,44 @@ async function sendText() {
   const t = $('#text-input').value.trim();
   if (!t || !current) return;
   $('#text-input').value = '';
-  const m = await api('/api/send-text', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ peer_id: current, text: t }),
-  });
-  upsertMessage(m);
+  try {
+    const m = await api('/api/send-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peer_id: current, text: t }),
+    });
+    upsertMessage(m);
+  } catch (e) {
+    $('#text-input').value = t;  // 失败把内容还给输入框，不能静默丢
+    alert('发送失败：对方可能已离线');
+  }
 }
 
 async function sendFiles(files) {
   if (!current) return;
+  const failed = [];
   for (const f of files) {
     const fd = new FormData();
     fd.append('file', f);
-    const m = await api('/api/send-file?peer=' + encodeURIComponent(current), {
-      method: 'POST',
-      body: fd,
-    });
-    upsertMessage(m);
+    try {
+      const m = await api('/api/send-file?peer=' + encodeURIComponent(current), {
+        method: 'POST',
+        body: fd,
+      });
+      upsertMessage(m);
+    } catch (e) {
+      failed.push(f.name);  // 单个失败不中断后续文件
+    }
   }
+  if (failed.length) alert('以下文件发送失败：' + failed.join('、'));
 }
 
 const es = new EventSource('/api/events');
+es.onopen = () => {
+  // SSE 断线重连后补拉当前会话，找回断线窗口期丢失的消息
+  if (current) selectPeer(current);
+  refreshPeers();
+};
 es.onmessage = (e) => {
   const ev = JSON.parse(e.data);
   if (ev.type === 'peers') refreshPeers();
