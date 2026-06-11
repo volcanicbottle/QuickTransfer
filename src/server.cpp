@@ -83,21 +83,37 @@ void App::setup_routes() {
     json arr = json::array();
     long long now = util::now_ms();
     for (auto& p : discovery_->peers()) {
+      std::string secret;
       arr.push_back({{"id", p.id},
                      {"name", p.name},
                      {"ip", p.ip},
                      {"port", p.port},
+                     {"type", "pc"},
+                     {"paired", auth_.get_pairing_secret(p.id, secret)},
                      {"online", now - p.last_seen < discovery::kOfflineMs}});
+    }
+    for (auto& ph : auth_.phones()) {
+      arr.push_back({{"id", ph.id},
+                     {"name", ph.name},
+                     {"type", "phone"},
+                     {"paired", true},
+                     {"online", now - ph.last_seen < 30000}});
     }
     res.set_content(arr.dump(), "application/json");
   });
 
-  svr_.Get("/api/events", [this](const httplib::Request&, httplib::Response& res) {
+  svr_.Get("/api/events", [this](const httplib::Request& req, httplib::Response& res) {
+    std::string phone_filter;  // 非空：只推送该手机会话的消息事件
+    if (!is_local(req)) {
+      PhoneInfo ph;
+      if (!phone_from_request(req, ph)) { res.status = 401; return; }
+      phone_filter = ph.id;
+    }
     auto sub = bus_.subscribe();
     res.set_header("Cache-Control", "no-cache");
     res.set_chunked_content_provider(
         "text/event-stream",
-        [sub](size_t, httplib::DataSink& sink) {
+        [sub, phone_filter](size_t, httplib::DataSink& sink) {
           std::string chunk;
           {
             std::unique_lock<std::mutex> lk(sub->mu);
@@ -107,9 +123,18 @@ void App::setup_routes() {
               chunk = ": ping\n\n";  // 保活注释行
             } else {
               while (!sub->queue.empty()) {
-                chunk += "data: " + sub->queue.front() + "\n\n";
+                const std::string& payload = sub->queue.front();
+                bool pass = true;
+                if (!phone_filter.empty()) {
+                  auto j = json::parse(payload, nullptr, false);
+                  pass = !j.is_discarded() && j.is_object() &&
+                         j.contains("message") && j["message"].is_object() &&
+                         j["message"].value("peer_id", "") == phone_filter;
+                }
+                if (pass) chunk += "data: " + payload + "\n\n";
                 sub->queue.pop_front();
               }
+              if (chunk.empty()) chunk = ": skip\n\n";  // 全被过滤也写一行保活
             }
           }
           return sink.write(chunk.data(), chunk.size());
@@ -120,6 +145,11 @@ void App::setup_routes() {
   // 历史记录
   svr_.Get("/api/messages", [this](const httplib::Request& req, httplib::Response& res) {
     auto peer = req.get_param_value("peer");
+    if (!is_local(req)) {  // 手机只能看自己的会话
+      PhoneInfo ph;
+      if (!phone_from_request(req, ph)) { res.status = 401; return; }
+      peer = ph.id;
+    }
     json arr = json::array();
     for (auto& m : history_.list(peer)) arr.push_back(to_json(m));
     res.set_content(arr.dump(), "application/json");
@@ -134,6 +164,20 @@ void App::setup_routes() {
       peer_id = j.value("peer_id", "");
       text = j.value("text", "");
     } catch (const nlohmann::json::exception&) { res.status = 400; return; }
+    PhoneInfo ph;
+    if (!text.empty() && auth_.find_phone_by_id(peer_id, ph)) {
+      // 发给手机：本地写入即完成，无网络推送
+      Message m;
+      m.peer_id = peer_id;
+      m.direction = "out";
+      m.kind = "text";
+      m.body = text;
+      m.status = "ok";
+      history_.add(m);
+      publish_message("message", m);
+      res.set_content(to_json(m).dump(), "application/json");
+      return;
+    }
     PeerInfo peer;
     if (text.empty() || !discovery_->find(peer_id, peer)) { res.status = 400; return; }
     Message m;
@@ -222,7 +266,9 @@ void App::setup_routes() {
     namespace fs = std::filesystem;
     std::string peer_id = req.get_param_value("peer");
     PeerInfo peer;
-    if (!discovery_->find(peer_id, peer)) { res.status = 400; return; }
+    PhoneInfo ph;
+    bool to_phone = auth_.find_phone_by_id(peer_id, ph);
+    if (!to_phone && !discovery_->find(peer_id, peer)) { res.status = 400; return; }
     fs::create_directories(cfg_.staging_dir());
     std::string filename;
     fs::path staged;
@@ -259,10 +305,10 @@ void App::setup_routes() {
     m.file_name = filename;
     m.file_size = (long long)fs::file_size(staged, ec);
     m.file_path = staged.string();
-    m.status = "pending";
+    m.status = to_phone ? "ok" : "pending";  // 手机：文件留在暂存区供其下载，立即完成
     history_.add(m);
     publish_message("message", m);
-    start_file_send(m.id);
+    if (!to_phone) start_file_send(m.id);
     res.set_content(to_json(m).dump(), "application/json");
   });
 

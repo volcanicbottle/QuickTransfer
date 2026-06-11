@@ -1,4 +1,6 @@
 #include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <thread>
 #include "json.hpp"
 #include "server.h"
@@ -110,6 +112,88 @@ void App::setup_auth_routes() {
     if (secret.empty()) { res.status = 502; return; }
     auth_.save_pairing(peer_id, secret, peer.name);
     bus_.publish(json{{"type", "peers"}}.dump());
+    res.set_content("{}", "application/json");
+  });
+
+  // 手机 → 发文字（写入本机即完成）
+  svr_.Post("/api/phone/send-text", [this](const httplib::Request& req, httplib::Response& res) {
+    PhoneInfo ph;
+    if (!phone_from_request(req, ph)) { res.status = 401; return; }
+    auto j = json::parse(req.body, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) { res.status = 400; return; }
+    std::string text;
+    try { text = j.value("text", ""); } catch (const nlohmann::json::exception&) {
+      res.status = 400;
+      return;
+    }
+    if (text.empty()) { res.status = 400; return; }
+    Message m;
+    m.peer_id = ph.id;
+    m.direction = "in";  // 电脑视角：收到
+    m.kind = "text";
+    m.body = text;
+    m.status = "ok";
+    history_.add(m);
+    auth_.touch_phone(ph.id, util::now_ms());
+    publish_message("message", m);
+    res.set_content(to_json(m).dump(), "application/json");
+  });
+
+  // 手机 → 上传文件（直接存下载目录）
+  svr_.Post("/api/phone/send-file",
+            [this](const httplib::Request& req, httplib::Response& res,
+                   const httplib::ContentReader& reader) {
+    namespace fs = std::filesystem;
+    PhoneInfo ph;
+    if (!phone_from_request(req, ph)) { res.status = 401; return; }
+    fs::create_directories(cfg_.download_dir);
+    std::string filename;
+    fs::path target;
+    auto ofs = std::make_shared<std::ofstream>();
+    bool skipping = false;  // 只收第一个 file part（与 /api/send-file 同惯例）
+    reader(
+        [&](const httplib::MultipartFormData& file) {
+          if (ofs->is_open() || !filename.empty()) {
+            skipping = true;
+            return true;
+          }
+          filename = fs::path(file.filename).filename().string();
+          if (filename.empty()) filename = "未命名";
+          target = util::unique_path(cfg_.download_dir, filename);
+          ofs->open(target, std::ios::binary);
+          return ofs->good();
+        },
+        [&](const char* data, size_t len) {
+          if (skipping) return true;
+          ofs->write(data, (std::streamsize)len);
+          return ofs->good();
+        });
+    if (ofs->is_open()) ofs->close();
+    std::error_code ec;
+    if (filename.empty() || !fs::exists(target)) {
+      if (!target.empty()) fs::remove(target, ec);
+      res.status = 400;
+      return;
+    }
+    Message m;
+    m.peer_id = ph.id;
+    m.direction = "in";
+    m.kind = "file";
+    m.file_name = target.filename().string();
+    m.file_size = (long long)fs::file_size(target, ec);
+    m.file_path = target.string();
+    m.status = "ok";
+    history_.add(m);
+    auth_.touch_phone(ph.id, util::now_ms());
+    publish_message("message", m);
+    res.set_content(to_json(m).dump(), "application/json");
+  });
+
+  // 手机心跳（在线状态）
+  svr_.Post("/api/phone/heartbeat", [this](const httplib::Request& req, httplib::Response& res) {
+    PhoneInfo ph;
+    if (!phone_from_request(req, ph)) { res.status = 401; return; }
+    auth_.touch_phone(ph.id, util::now_ms());
     res.set_content("{}", "application/json");
   });
 }
