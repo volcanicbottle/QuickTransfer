@@ -2,6 +2,7 @@
 #include "json.hpp"
 #include "util.h"
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 
 #ifdef _WIN32
@@ -14,6 +15,7 @@ using sock_t = SOCKET;
 using socklen_t = int;
 static void sock_init() { WSADATA w; WSAStartup(MAKEWORD(2, 2), &w); }
 static void sock_close(sock_t s) { closesocket(s); }
+static bool sock_ok(sock_t s) { return s != INVALID_SOCKET; }
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -22,6 +24,7 @@ static void sock_close(sock_t s) { closesocket(s); }
 using sock_t = int;
 static void sock_init() {}
 static void sock_close(sock_t s) { close(s); }
+static bool sock_ok(sock_t s) { return s >= 0; }
 #endif
 
 namespace discovery {
@@ -33,11 +36,16 @@ std::string make_announce(const std::string& id, const std::string& name, int po
 
 bool parse_announce(const std::string& packet, PeerInfo& out) {
   auto j = nlohmann::json::parse(packet, nullptr, false);
-  if (j.is_discarded() || j.value("app", "") != "duoduan") return false;
-  out.id = j.value("id", "");
-  out.name = j.value("name", "");
-  out.port = j.value("port", 0);
-  return !out.id.empty() && out.port > 0;
+  if (j.is_discarded() || !j.is_object()) return false;
+  try {
+    if (j.value("app", "") != "duoduan") return false;
+    out.id = j.value("id", "");
+    out.name = j.value("name", "");
+    out.port = j.value("port", 0);
+  } catch (const nlohmann::json::exception&) {
+    return false;
+  }
+  return !out.id.empty() && out.port > 0 && out.port <= 65535;
 }
 
 }  // namespace discovery
@@ -50,9 +58,9 @@ Discovery::Discovery(std::string self_id, std::string self_name, int http_port)
 Discovery::~Discovery() { stop(); }
 
 void Discovery::start(std::function<void()> on_change) {
+  if (running_.exchange(true)) return;
   on_change_ = std::move(on_change);
   sock_init();
-  running_ = true;
   bth_ = std::thread([this] { broadcast_loop(); });
   lth_ = std::thread([this] { listen_loop(); });
 }
@@ -66,6 +74,10 @@ void Discovery::stop() {
 
 void Discovery::broadcast_loop() {
   sock_t s = socket(AF_INET, SOCK_DGRAM, 0);
+  if (!sock_ok(s)) {
+    std::fprintf(stderr, "discovery: 创建广播 socket 失败\n");
+    return;
+  }
   int yes = 1;
   setsockopt(s, SOL_SOCKET, SO_BROADCAST, (const char*)&yes, sizeof(yes));
   std::string msg = discovery::make_announce(self_id_, self_name_, http_port_);
@@ -86,6 +98,10 @@ void Discovery::broadcast_loop() {
 
 void Discovery::listen_loop() {
   sock_t s = socket(AF_INET, SOCK_DGRAM, 0);
+  if (!sock_ok(s)) {
+    std::fprintf(stderr, "discovery: 创建监听 socket 失败\n");
+    return;
+  }
   int yes = 1;
   setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&yes, sizeof(yes));
 #ifdef SO_REUSEPORT
@@ -102,7 +118,12 @@ void Discovery::listen_loop() {
   addr.sin_family = AF_INET;
   addr.sin_port = htons(discovery::kUdpPort);
   addr.sin_addr.s_addr = INADDR_ANY;
-  bind(s, (sockaddr*)&addr, sizeof(addr));
+  if (bind(s, (sockaddr*)&addr, sizeof(addr)) != 0) {
+    std::fprintf(stderr, "discovery: 绑定 UDP 端口 %d 失败，设备发现不可用（端口被占用？）\n",
+                 discovery::kUdpPort);
+    sock_close(s);
+    return;
+  }
   char buf[1500];
   while (running_) {
     sockaddr_in from{};
