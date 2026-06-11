@@ -40,12 +40,42 @@ void App::publish_message(const char* type, const Message& m) {
 }
 
 void App::setup_routes() {
+  // 鉴权边界：localhost 全放行；静态文件放行；远程 /api/* 走白名单+token
+  svr_.set_pre_routing_handler([this](const httplib::Request& req, httplib::Response& res) {
+    if (is_local(req)) return httplib::Server::HandlerResponse::Unhandled;
+    const std::string& p = req.path;
+    if (p.rfind("/api/", 0) != 0)
+      return httplib::Server::HandlerResponse::Unhandled;  // 静态文件与 /peer/*（各自校验）
+    if (p == "/api/phone/register")
+      return httplib::Server::HandlerResponse::Unhandled;  // 注册入口（内部验 PIN）
+    static const char* kRemoteAllowed[] = {
+        "/api/self",          "/api/events",          "/api/messages",
+        "/api/file",          "/api/phone/send-text", "/api/phone/send-file",
+        "/api/phone/heartbeat"};
+    bool allowed = false;
+    for (const char* a : kRemoteAllowed)
+      if (p == a) { allowed = true; break; }
+    if (!allowed) {  // 远程不允许的接口（send-text/pair/retry 等）即使有 token 也拒绝
+      res.status = 403;
+      res.set_content("{\"error\":\"forbidden\"}", "application/json");
+      return httplib::Server::HandlerResponse::Handled;
+    }
+    PhoneInfo ph;
+    if (phone_from_request(req, ph))
+      return httplib::Server::HandlerResponse::Unhandled;
+    res.status = 401;
+    res.set_content("{\"error\":\"unauthorized\"}", "application/json");
+    return httplib::Server::HandlerResponse::Handled;
+  });
+
   if (!svr_.set_mount_point("/", web_dir_.string()))
     std::fprintf(stderr, "警告：静态目录 %s 不存在，页面将不可用\n",
                  web_dir_.string().c_str());
 
-  svr_.Get("/api/self", [this](const httplib::Request&, httplib::Response& res) {
-    json j{{"id", cfg_.id}, {"name", cfg_.name}, {"port", port_}};
+  svr_.Get("/api/self", [this](const httplib::Request& req, httplib::Response& res) {
+    json j{{"id", cfg_.id}, {"name", cfg_.name}, {"port", port_},
+           {"is_remote", !is_local(req)}};
+    if (is_local(req)) j["pin"] = cfg_.pin;
     res.set_content(j.dump(), "application/json");
   });
 
