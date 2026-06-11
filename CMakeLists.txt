@@ -11,7 +11,7 @@ target_include_directories(sqlite3_lib PUBLIC third_party)
 
 find_package(Threads REQUIRED)
 
-file(GLOB APP_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+file(GLOB APP_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 add_executable(duoduan ${APP_SOURCES})
 target_include_directories(duoduan PRIVATE src third_party)
 target_link_libraries(duoduan PRIVATE sqlite3_lib Threads::Threads ${CMAKE_DL_LIBS})
@@ -20,7 +20,7 @@ if(WIN32)
 endif()
 
 enable_testing()
-file(GLOB TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
 set(SRC_NO_MAIN ${APP_SOURCES})
 list(REMOVE_ITEM SRC_NO_MAIN ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 add_executable(unit_tests ${TEST_SOURCES} ${SRC_NO_MAIN})
