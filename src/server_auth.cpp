@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -202,5 +204,34 @@ void App::setup_auth_routes() {
     if (!phone_from_request(req, ph)) { res.status = 401; return; }
     auth_.touch_phone(ph.id, util::now_ms());
     res.set_content("{}", "application/json");
+  });
+
+  // 下载消息附件：localhost 任意；手机仅限自己会话的消息
+  svr_.Get("/api/file", [this](const httplib::Request& req, httplib::Response& res) {
+    namespace fs = std::filesystem;
+    long long id = std::atoll(req.get_param_value("id").c_str());
+    Message m = history_.get(id);
+    if (m.id == 0 || m.kind != "file" || m.file_path.empty()) { res.status = 404; return; }
+    if (!is_local(req)) {
+      PhoneInfo ph;
+      if (!phone_from_request(req, ph) || m.peer_id != ph.id) { res.status = 403; return; }
+    }
+    auto file = std::make_shared<std::ifstream>(fs::path(m.file_path), std::ios::binary);
+    std::error_code ec;
+    auto size = fs::file_size(fs::path(m.file_path), ec);
+    if (!*file || ec) { res.status = 404; return; }
+    res.set_header("Content-Disposition",
+                   "attachment; filename*=UTF-8''" + util::url_encode(m.file_name));
+    res.set_content_provider(
+        (size_t)size, "application/octet-stream",
+        [file](size_t offset, size_t length, httplib::DataSink& sink) {
+          file->seekg((std::streamoff)offset);
+          char buf[65536];
+          size_t want = std::min(length, sizeof(buf));
+          file->read(buf, (std::streamsize)want);
+          std::streamsize n = file->gcount();
+          if (n <= 0) return false;
+          return sink.write(buf, (size_t)n);
+        });
   });
 }
