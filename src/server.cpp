@@ -193,8 +193,13 @@ void App::setup_routes() {
     std::string filename;
     fs::path staged;
     auto ofs = std::make_shared<std::ofstream>();
+    bool skipping = false;  // 多个 file part 时只收第一个，忽略其余
     reader(
         [&](const httplib::MultipartFormData& file) {
+          if (ofs->is_open() || !filename.empty()) {
+            skipping = true;
+            return true;  // 忽略后续 part，不中止解析
+          }
           filename = fs::path(file.filename).filename().string();
           if (filename.empty()) filename = "未命名";
           staged = util::unique_path(cfg_.staging_dir(), filename);
@@ -202,12 +207,17 @@ void App::setup_routes() {
           return ofs->good();
         },
         [&](const char* data, size_t len) {
+          if (skipping) return true;  // 丢弃被忽略 part 的数据
           ofs->write(data, (std::streamsize)len);
           return ofs->good();
         });
-    ofs->close();
+    if (ofs->is_open()) ofs->close();
     std::error_code ec;
-    if (filename.empty() || !fs::exists(staged)) { res.status = 400; return; }
+    if (filename.empty() || !fs::exists(staged)) {
+      if (!staged.empty()) fs::remove(staged, ec);  // 清理半成品
+      res.status = 400;
+      return;
+    }
     Message m;
     m.peer_id = peer_id;
     m.direction = "out";
