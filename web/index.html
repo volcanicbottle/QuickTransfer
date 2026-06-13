@@ -10,6 +10,10 @@
 <div id="sidebar">
   <div id="self-name">…</div>
   <div id="self-pin"></div>
+  <div id="self-actions">
+    <button id="qr-btn" hidden>📱 手机接入</button>
+    <button id="quit-btn" hidden>⏻ 停止服务</button>
+  </div>
   <div id="peer-list"></div>
 </div>
 <div id="main">
@@ -22,6 +26,16 @@
     <button id="send-btn">发送</button>
   </div>
 </div>
+<div id="qr-modal" hidden>
+  <div id="qr-box">
+    <h3>手机扫码接入</h3>
+    <div id="qr-img"></div>
+    <select id="qr-ip" hidden></select>
+    <div id="qr-url"></div>
+    <div id="qr-hint">用手机相机/浏览器扫码；需与本机在同一 Wi-Fi。扫码后填设备名即可连接。</div>
+    <button id="qr-close">关闭</button>
+  </div>
+</div>
 <div id="login" hidden>
   <div id="login-box">
     <h2>连接到电脑</h2>
@@ -31,6 +45,7 @@
     <div id="login-err"></div>
   </div>
 </div>
+<script src="qrcode.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

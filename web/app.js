@@ -28,6 +28,11 @@ function phoneId() {
 
 function showLogin() {
   $('#login').hidden = false;
+  const urlPin = new URLSearchParams(location.search).get('pin');
+  if (urlPin && /^\d{6}$/.test(urlPin)) {
+    $('#login-pin').value = urlPin;
+    setTimeout(() => $('#login-name').focus(), 0);
+  }
   $('#login-btn').onclick = async () => {
     const name = $('#login-name').value.trim();
     const pin = $('#login-pin').value.trim();
@@ -35,13 +40,14 @@ function showLogin() {
       $('#login-err').textContent = '请填写设备名和 6 位 PIN';
       return;
     }
+    const device = /Mobi|Android|iPhone/i.test(navigator.userAgent) ? 'phone' : 'pc';
     try {
       await api('/api/phone/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_id: phoneId(), name, pin }),
+        body: JSON.stringify({ phone_id: phoneId(), name, pin, device }),
       });
-      location.reload();
+      location.replace('/');  // 抹掉带 PIN 的地址
     } catch (e) {
       $('#login-err').textContent = String(e).includes('429')
         ? '尝试次数过多，请稍后再试' : 'PIN 错误，请核对电脑屏幕上的数字';
@@ -65,7 +71,8 @@ function renderPeers() {
     dot.className = 'dot';
     const name = document.createElement('span');
     name.className = 'pname';
-    name.textContent = (p.type === 'phone' ? '📱 ' : '💻 ') + p.name + (p.paired ? '' : ' 🔒');
+    const isPc = p.type === 'pc' || p.device === 'pc';
+    name.textContent = (isPc ? '💻 ' : '📱 ') + p.name + (p.paired ? '' : ' 🔒');
     d.append(dot, name);
     d.onclick = () => (p.paired ? selectPeer(p.id) : pairWith(p));
     return d;
@@ -89,6 +96,49 @@ function renderPeers() {
   if (!peers.length) {
     el.innerHTML = '<div class="empty">正在搜索局域网设备…<br>请确认对方已启动本程序</div>';
   }
+}
+
+function makeQR(text) {
+  const qr = qrcode(0, 'M');  // type 0 = 自动选版本
+  qr.addData(text);
+  qr.make();
+  return qr.createDataURL(6);  // 每格 6px
+}
+
+function showQR() {
+  const ips = self.lan_ips || [];
+  const sel = $('#qr-ip');
+  const render = (ip) => {
+    const url = `http://${ip}:${self.port}/?pin=${self.pin}`;
+    $('#qr-url').textContent = url;
+    $('#qr-img').innerHTML = '';
+    const img = new Image();
+    img.src = makeQR(url);
+    $('#qr-img').appendChild(img);
+  };
+  if (!ips.length) {
+    sel.hidden = true;
+    $('#qr-img').innerHTML = '';
+    $('#qr-url').textContent = '未检测到局域网 IP，请确认已连接 Wi-Fi 或网线';
+  } else {
+    sel.hidden = ips.length < 2;
+    sel.innerHTML = '';
+    ips.forEach((ip) => {
+      const o = document.createElement('option');
+      o.value = ip; o.textContent = ip;
+      sel.appendChild(o);
+    });
+    sel.onchange = () => render(sel.value);
+    render(ips[0]);
+  }
+  $('#qr-modal').hidden = false;
+}
+
+async function quitService() {
+  if (!confirm('确定要停止服务吗？停止后本页和所有手机都将断开。')) return;
+  try { await fetch('/api/quit', { method: 'POST' }); } catch (e) { /* 服务关闭会断连，忽略 */ }
+  document.body.innerHTML =
+    '<div style="padding:48px;text-align:center;font-size:18px;color:#333">服务已停止，可关闭本页。</div>';
 }
 
 async function pairWith(p) {
@@ -288,6 +338,11 @@ $('#messages').addEventListener('drop', (e) => {
   } else {
     $('#self-name').textContent = '本机：' + self.name;
     $('#self-pin').textContent = '配对 PIN：' + self.pin;
+    $('#qr-btn').hidden = false;
+    $('#quit-btn').hidden = false;
+    $('#qr-btn').onclick = showQR;
+    $('#quit-btn').onclick = quitService;
+    $('#qr-close').onclick = () => { $('#qr-modal').hidden = true; };
     document.title = '多端互通 - ' + self.name;
     await refreshPeers();
     setInterval(refreshPeers, 5000);
