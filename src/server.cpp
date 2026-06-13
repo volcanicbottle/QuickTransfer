@@ -36,13 +36,13 @@ bool App::run() {
 }
 
 void App::publish_message(const char* type, const Message& m) {
-  bus_.publish(json{{"type", type}, {"message", to_json(m)}}.dump());
+  bus_.publish(json{{"type", type}, {"message", to_json(m)}}.dump());//bus是什么
 }
 
 void App::setup_routes() {
   // 鉴权边界：localhost 全放行；静态文件放行；远程 /api/* 走白名单+token
   svr_.set_pre_routing_handler([this](const httplib::Request& req, httplib::Response& res) {
-    if (is_local(req)) return httplib::Server::HandlerResponse::Unhandled;
+    if (is_local(req)) return httplib::Server::HandlerResponse::Unhandled;//这是什么
     const std::string& p = req.path;
     if (p.rfind("/api/", 0) != 0)
       return httplib::Server::HandlerResponse::Unhandled;  // 静态文件与 /peer/*（各自校验）
@@ -53,7 +53,7 @@ void App::setup_routes() {
         "/api/file",          "/api/phone/send-text", "/api/phone/send-file",
         "/api/phone/heartbeat"};
     bool allowed = false;
-    for (const char* a : kRemoteAllowed)
+    for (const char* a : kRemoteAllowed)//为什么这些可以allow,还有这些是什么啊
       if (p == a) { allowed = true; break; }
     if (!allowed) {  // 远程不允许的接口（send-text/pair/retry 等）即使有 token 也拒绝
       res.status = 403;
@@ -65,7 +65,7 @@ void App::setup_routes() {
       return httplib::Server::HandlerResponse::Unhandled;
     std::fprintf(stderr, "鉴权: 拒绝远程无凭证访问 %s（来源 %s）\n", p.c_str(),
                  req.remote_addr.c_str());
-    res.status = 401;
+    res.status = 401;//这是怎么规定的
     res.set_content("{\"error\":\"unauthorized\"}", "application/json");
     return httplib::Server::HandlerResponse::Handled;
   });
@@ -74,7 +74,7 @@ void App::setup_routes() {
     std::fprintf(stderr, "警告：静态目录 %s 不存在，页面将不可用\n",
                  web_dir_.string().c_str());
 
-  svr_.Get("/api/self", [this](const httplib::Request& req, httplib::Response& res) {
+  svr_.Get("/api/self", [this](const httplib::Request& req, httplib::Response& res) {//这个this是什么，lambda吗
     json j{{"id", cfg_.id}, {"name", cfg_.name}, {"port", port_},
            {"is_remote", !is_local(req)}};
     if (is_local(req)) j["pin"] = cfg_.pin;
@@ -108,10 +108,10 @@ void App::setup_routes() {
     std::string phone_filter;  // 非空：只推送该手机会话的消息事件
     if (!is_local(req)) {
       PhoneInfo ph;
-      if (!phone_from_request(req, ph)) { res.status = 401; return; }
+      if (!phone_from_request(req, ph)) { res.status = 401; return; }//不懂
       phone_filter = ph.id;
     }
-    auto sub = bus_.subscribe();
+    auto sub = bus_.subscribe();//这是什么
     res.set_header("Cache-Control", "no-cache");
     res.set_chunked_content_provider(
         "text/event-stream",
