@@ -42,7 +42,7 @@ int main(int argc, char** argv) {
       runstate::remove(run_file);
       return 0;
     }
-    for (int i = 0; i < 50; ++i) {  // 轮询直到端口拒绝连接
+    for (int i = 0; i < 50; ++i) {  // 最多等 ~5s：正常情况端口拒绝连接即退出；服务挂起未释放端口则到期后无条件视为已停止
       httplib::Client probe("127.0.0.1", port);
       probe.set_connection_timeout(1);
       if (!probe.Get("/api/self")) break;
