@@ -9,7 +9,11 @@ struct sqlite3;
 struct PhoneInfo {
   std::string id, name, token;
   long long last_seen = 0;
+  std::string device = "phone";  // "phone" | "pc"
 };
+
+// 设备类型归一化：仅 "phone"/"pc"，其余一律按 "phone"
+std::string normalize_device(const std::string& d);
 
 // 配对与凭证存储：pairings（电脑互信密钥）+ phones（手机注册）
 // 与 History 共用同一 db 文件（独立连接，WAL + busy_timeout）

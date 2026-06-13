@@ -2,6 +2,7 @@
 #include "auth.h"
 #include "util.h"
 #include <filesystem>
+#include <sqlite3.h>
 
 TEST_CASE("AuthStore 配对密钥增删查") {
   namespace fs = std::filesystem;
@@ -102,4 +103,56 @@ TEST_CASE("PinGuard 锁定到期后重新从零计数") {
   CHECK_FALSE(g.locked(after));  // 到期后需再失败 10 次才会重新锁定
   g.record_failure(after);
   CHECK(g.locked(after));
+}
+
+TEST_CASE("normalize_device 仅接受 phone/pc") {
+  CHECK(normalize_device("pc") == "pc");
+  CHECK(normalize_device("phone") == "phone");
+  CHECK(normalize_device("") == "phone");
+  CHECK(normalize_device("hacker") == "phone");
+}
+
+TEST_CASE("AuthStore device 列读写默认值") {
+  namespace fs = std::filesystem;
+  auto dir = fs::temp_directory_path() / ("dd_dev_" + util::gen_id());
+  fs::create_directories(dir);
+  {
+    AuthStore a(dir / "t.db");
+    PhoneInfo p;
+    p.id = "ph1"; p.name = "MacBook"; p.token = "t1"; p.last_seen = 1; p.device = "pc";
+    a.save_phone(p);
+    PhoneInfo got;
+    REQUIRE(a.find_phone_by_id("ph1", got));
+    CHECK(got.device == "pc");
+
+    PhoneInfo p2;  // 不设 device，结构体默认 "phone"
+    p2.id = "ph2"; p2.name = "iPhone"; p2.token = "t2"; p2.last_seen = 1;
+    a.save_phone(p2);
+    REQUIRE(a.find_phone_by_id("ph2", got));
+    CHECK(got.device == "phone");
+  }
+  fs::remove_all(dir);
+}
+
+TEST_CASE("AuthStore 旧库无 device 列自动迁移") {
+  namespace fs = std::filesystem;
+  auto dir = fs::temp_directory_path() / ("dd_mig_" + util::gen_id());
+  fs::create_directories(dir);
+  auto db = dir / "t.db";
+  {  // 用旧 schema 建库并插入一行（无 device 列）
+    sqlite3* raw = nullptr;
+    REQUIRE(sqlite3_open(db.u8string().c_str(), &raw) == SQLITE_OK);
+    sqlite3_exec(raw,
+        "CREATE TABLE phones(id TEXT PRIMARY KEY,name TEXT,token TEXT,last_seen INTEGER);"
+        "INSERT INTO phones VALUES('old','旧机','tk',5);",
+        nullptr, nullptr, nullptr);
+    sqlite3_close(raw);
+  }
+  {
+    AuthStore a(db);  // 构造时应 ALTER 补列
+    PhoneInfo got;
+    REQUIRE(a.find_phone_by_id("old", got));
+    CHECK(got.device == "phone");  // 旧记录默认 phone
+  }
+  fs::remove_all(dir);
 }

@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS phones(
   last_seen INTEGER NOT NULL DEFAULT 0
 );
 )sql");
+  // 迁移：旧库补 device 列（列已存在时 ALTER 失败，忽略错误）
+  {
+    char* err = nullptr;
+    sqlite3_exec(db_, "ALTER TABLE phones ADD COLUMN device TEXT NOT NULL DEFAULT 'phone'",
+                 nullptr, nullptr, &err);
+    if (err) sqlite3_free(err);
+  }
 }
 
 AuthStore::~AuthStore() {
@@ -80,18 +87,21 @@ static PhoneInfo row_to_phone(sqlite3_stmt* st) {
   p.name = txt(1);
   p.token = txt(2);
   p.last_seen = sqlite3_column_int64(st, 3);
+  p.device = txt(4);
+  if (p.device.empty()) p.device = "phone";
   return p;
 }
 
 void AuthStore::save_phone(const PhoneInfo& p) {
   sqlite3_stmt* st = nullptr;
-  sqlite3_prepare_v2(db_,
-                     "INSERT OR REPLACE INTO phones(id,name,token,last_seen) VALUES(?,?,?,?)",
-                     -1, &st, nullptr);
+  sqlite3_prepare_v2(
+      db_, "INSERT OR REPLACE INTO phones(id,name,token,last_seen,device) VALUES(?,?,?,?,?)",
+      -1, &st, nullptr);
   sqlite3_bind_text(st, 1, p.id.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(st, 2, p.name.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(st, 3, p.token.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_int64(st, 4, p.last_seen);
+  sqlite3_bind_text(st, 5, normalize_device(p.device).c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_step(st);
   sqlite3_finalize(st);
 }
@@ -110,11 +120,11 @@ static bool find_phone(sqlite3* db, const char* sql, const std::string& key, Pho
 }
 
 bool AuthStore::find_phone_by_token(const std::string& token, PhoneInfo& out) const {
-  return find_phone(db_, "SELECT id,name,token,last_seen FROM phones WHERE token=?", token, out);
+  return find_phone(db_, "SELECT id,name,token,last_seen,device FROM phones WHERE token=?", token, out);
 }
 
 bool AuthStore::find_phone_by_id(const std::string& id, PhoneInfo& out) const {
-  return find_phone(db_, "SELECT id,name,token,last_seen FROM phones WHERE id=?", id, out);
+  return find_phone(db_, "SELECT id,name,token,last_seen,device FROM phones WHERE id=?", id, out);
 }
 
 void AuthStore::touch_phone(const std::string& id, long long now_ms) {
@@ -128,7 +138,7 @@ void AuthStore::touch_phone(const std::string& id, long long now_ms) {
 
 std::vector<PhoneInfo> AuthStore::phones() const {
   sqlite3_stmt* st = nullptr;
-  sqlite3_prepare_v2(db_, "SELECT id,name,token,last_seen FROM phones ORDER BY name", -1, &st,
+  sqlite3_prepare_v2(db_, "SELECT id,name,token,last_seen,device FROM phones ORDER BY name", -1, &st,
                      nullptr);
   std::vector<PhoneInfo> v;
   while (sqlite3_step(st) == SQLITE_ROW) v.push_back(row_to_phone(st));
@@ -159,4 +169,8 @@ void PinGuard::record_failure(long long now) {
 void PinGuard::record_success() {
   std::lock_guard<std::mutex> lk(mu_);
   failures_ = 0;
+}
+
+std::string normalize_device(const std::string& d) {
+  return d == "pc" ? "pc" : "phone";
 }
