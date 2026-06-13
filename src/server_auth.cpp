@@ -58,11 +58,12 @@ void App::setup_auth_routes() {
     if (pin_guard_.locked(now) || pin_guard_.throttled(now)) { res.status = 429; return; }
     auto j = json::parse(req.body, nullptr, false);
     if (j.is_discarded() || !j.is_object()) { res.status = 400; return; }
-    std::string phone_id, name, pin;
+    std::string phone_id, name, pin, device;
     try {
       phone_id = j.value("phone_id", "");
       name = j.value("name", "");
       pin = j.value("pin", "");
+      device = j.value("device", "");
     } catch (const nlohmann::json::exception&) { res.status = 400; return; }
     if (phone_id.size() < 8 || phone_id.size() > 64 || name.empty() || name.size() > 128) {
       res.status = 400;
@@ -79,6 +80,7 @@ void App::setup_auth_routes() {
     p.name = name;
     p.token = util::gen_secret();
     p.last_seen = now;
+    p.device = normalize_device(device);
     auth_.save_phone(p);
     res.set_header("Set-Cookie", "qt_token=" + p.token +
                                      "; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax");

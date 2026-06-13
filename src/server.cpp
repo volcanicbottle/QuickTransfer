@@ -77,7 +77,10 @@ void App::setup_routes() {
   svr_.Get("/api/self", [this](const httplib::Request& req, httplib::Response& res) {//这个this是什么，lambda吗
     json j{{"id", cfg_.id}, {"name", cfg_.name}, {"port", port_},
            {"is_remote", !is_local(req)}};
-    if (is_local(req)) j["pin"] = cfg_.pin;
+    if (is_local(req)) {
+      j["pin"] = cfg_.pin;
+      j["lan_ips"] = util::lan_ips();  // 远程不返回（与 pin 同等待遇）
+    }
     res.set_content(j.dump(), "application/json");
   });
 
@@ -98,6 +101,7 @@ void App::setup_routes() {
       arr.push_back({{"id", ph.id},
                      {"name", ph.name},
                      {"type", "phone"},
+                     {"device", ph.device},
                      {"paired", true},
                      {"online", now - ph.last_seen < 30000}});
     }
