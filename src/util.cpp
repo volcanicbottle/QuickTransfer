@@ -5,6 +5,16 @@
 #include <iomanip>
 #include <random>
 #include <sstream>
+#include <cstdint>
+#ifndef _WIN32
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#else
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
+#endif
 
 namespace util {
 
@@ -68,6 +78,45 @@ std::string gen_secret() {
   os << std::hex << std::setfill('0');
   for (int i = 0; i < 4; ++i) os << std::setw(8) << (uint32_t)rd();
   return os.str();
+}
+
+std::vector<std::string> lan_ips() {
+  std::vector<std::string> ips;
+#ifndef _WIN32
+  struct ifaddrs* ifs = nullptr;
+  if (getifaddrs(&ifs) != 0) return ips;
+  for (auto* p = ifs; p; p = p->ifa_next) {
+    if (!p->ifa_addr || p->ifa_addr->sa_family != AF_INET) continue;
+    auto* sin = reinterpret_cast<struct sockaddr_in*>(p->ifa_addr);
+    if ((ntohl(sin->sin_addr.s_addr) >> 24) == 127) continue;  // 跳过 127.x
+    char buf[INET_ADDRSTRLEN] = {0};
+    if (inet_ntop(AF_INET, &sin->sin_addr, buf, sizeof(buf))) ips.emplace_back(buf);
+  }
+  freeifaddrs(ifs);
+#else
+  ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+  ULONG sz = 15000;
+  std::vector<char> buf(sz);
+  auto* addrs = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data());
+  ULONG ret = GetAdaptersAddresses(AF_INET, flags, nullptr, addrs, &sz);
+  if (ret == ERROR_BUFFER_OVERFLOW) {
+    buf.resize(sz);
+    addrs = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data());
+    ret = GetAdaptersAddresses(AF_INET, flags, nullptr, addrs, &sz);
+  }
+  if (ret != NO_ERROR) return ips;
+  for (auto* a = addrs; a; a = a->Next) {
+    if (a->OperStatus != IfOperStatusUp) continue;
+    for (auto* u = a->FirstUnicastAddress; u; u = u->Next) {
+      if (u->Address.lpSockaddr->sa_family != AF_INET) continue;
+      auto* sin = reinterpret_cast<struct sockaddr_in*>(u->Address.lpSockaddr);
+      if ((ntohl(sin->sin_addr.s_addr) >> 24) == 127) continue;
+      char b[INET_ADDRSTRLEN] = {0};
+      if (inet_ntop(AF_INET, &sin->sin_addr, b, sizeof(b))) ips.emplace_back(b);
+    }
+  }
+#endif
+  return ips;
 }
 
 std::string get_cookie_value(const std::string& cookie_header, const std::string& name) {

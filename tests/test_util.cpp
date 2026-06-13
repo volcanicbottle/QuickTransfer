@@ -48,3 +48,12 @@ TEST_CASE("get_cookie_value 解析 Cookie 头") {
   CHECK(util::get_cookie_value("", "qt_token") == "");
   CHECK(util::get_cookie_value("myqt_token=bad; qt_token=good", "qt_token") == "good");
 }
+
+TEST_CASE("util::lan_ips 只返回非回环 IPv4") {
+  auto ips = util::lan_ips();           // 不保证非空（CI 可能无网卡）
+  for (const auto& ip : ips) {
+    CHECK(ip.rfind("127.", 0) != 0);    // 不含回环
+    CHECK(ip.find(':') == std::string::npos);  // 仅 IPv4
+    CHECK_FALSE(ip.empty());
+  }
+}
