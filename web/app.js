@@ -342,7 +342,10 @@ $('#messages').addEventListener('drop', (e) => {
     $('#quit-btn').hidden = false;
     $('#qr-btn').onclick = showQR;
     $('#quit-btn').onclick = quitService;
-    $('#qr-close').onclick = () => { $('#qr-modal').hidden = true; };
+    const closeQR = () => { $('#qr-modal').hidden = true; };
+    $('#qr-close').onclick = closeQR;
+    $('#qr-modal').onclick = (e) => { if (e.target === $('#qr-modal')) closeQR(); };  // 点击遮罩关闭
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeQR(); });
     document.title = '多端互通 - ' + self.name;
     await refreshPeers();
     setInterval(refreshPeers, 5000);
