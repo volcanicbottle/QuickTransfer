@@ -1,12 +1,21 @@
 #include "server.h"
 #include <algorithm>
+#include <csignal>
 #include <cstdio>
 #include <fstream>
 #include <thread>
 #include "json.hpp"
+#include "runstate.h"
 #include "util.h"
 
 using nlohmann::json;
+
+namespace {
+App* g_app = nullptr;  // 仅供信号处理回调使用
+void on_signal(int) {
+  if (g_app) g_app->request_stop();
+}
+}  // namespace
 
 App::App(Config cfg, std::filesystem::path web_dir)
     : cfg_(std::move(cfg)),
@@ -30,10 +39,21 @@ bool App::run() {
   discovery_->start([this] { bus_.publish(json{{"type", "peers"}}.dump()); });
 
   setup_routes();
+  runstate::write(cfg_.data_dir / "run.json", port_);
+  g_app = this;
+  std::signal(SIGINT, on_signal);
+  std::signal(SIGTERM, on_signal);
   std::printf("已启动：http://localhost:%d  （设备名：%s，配对 PIN：%s）\n", port_,
               cfg_.name.c_str(), cfg_.pin.c_str());
-  return svr_.listen_after_bind();
+  bool ok = svr_.listen_after_bind();  // 阻塞，stop() 后返回
+  if (discovery_) discovery_->stop();
+  runstate::remove(cfg_.data_dir / "run.json");
+  std::printf("已停止\n");
+  g_app = nullptr;
+  return ok;
 }
+
+void App::request_stop() { svr_.stop(); }
 
 void App::publish_message(const char* type, const Message& m) {
   bus_.publish(json{{"type", type}, {"message", to_json(m)}}.dump());
@@ -77,7 +97,10 @@ void App::setup_routes() {
   svr_.Get("/api/self", [this](const httplib::Request& req, httplib::Response& res) {
     json j{{"id", cfg_.id}, {"name", cfg_.name}, {"port", port_},
            {"is_remote", !is_local(req)}};
-    if (is_local(req)) j["pin"] = cfg_.pin;
+    if (is_local(req)) {
+      j["pin"] = cfg_.pin;
+      j["lan_ips"] = util::lan_ips();  // 远程不返回（与 pin 同等待遇）
+    }
     res.set_content(j.dump(), "application/json");
   });
 
@@ -98,6 +121,7 @@ void App::setup_routes() {
       arr.push_back({{"id", ph.id},
                      {"name", ph.name},
                      {"type", "phone"},
+                     {"device", ph.device},
                      {"paired", true},
                      {"online", now - ph.last_seen < 30000}});
     }
@@ -341,6 +365,13 @@ void App::setup_routes() {
       start_file_send(m.id);  // 文件：暂存还在（失败时不删除）
     }
     res.set_content("{}", "application/json");
+  });
+
+  // 主动停止：仅 localhost（远程经 pre-routing 已 403，此处再防一层）
+  svr_.Post("/api/quit", [this](const httplib::Request& req, httplib::Response& res) {
+    if (!is_local(req)) { res.status = 403; return; }
+    res.set_content("{\"ok\":true}", "application/json");
+    std::thread([this] { request_stop(); }).detach();  // 不能在 handler 内直接停
   });
 
   setup_auth_routes();

@@ -13,6 +13,7 @@ class App {
   App(Config cfg, std::filesystem::path web_dir);
   bool run();  // 阻塞运行；绑定失败返回 false
   int port() const { return port_; }
+  void request_stop();  // 触发优雅退出（信号处理/quit 路由调用）
 
  private:
   void setup_routes();

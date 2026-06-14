@@ -60,3 +60,26 @@ body.phone .bubble { max-width: 85%; }
 #peer-list summary { padding: 12px 14px; color: #888; font-size: 13px; cursor: pointer;
                      list-style-position: inside; }
 #peer-list details .peer { padding-left: 24px; }
+
+#self-actions { margin: 8px 0; display: flex; gap: 8px; flex-wrap: wrap; }
+#self-actions button {
+  font-size: 13px; padding: 6px 10px; border: 1px solid #ccc;
+  border-radius: 6px; background: #fff; cursor: pointer;
+}
+#self-actions button:hover { background: #f0f0f0; }
+#quit-btn { color: #c0392b; border-color: #e0b4ae; }
+
+#qr-modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+#qr-box {
+  background: #fff; padding: 24px 28px; border-radius: 12px;
+  text-align: center; max-width: 90vw;
+}
+#qr-box h3 { margin: 0 0 12px; }
+#qr-img img { width: 220px; height: 220px; image-rendering: pixelated; }
+#qr-ip { margin: 10px 0; padding: 4px; }
+#qr-url { font-family: monospace; font-size: 13px; word-break: break-all; margin: 8px 0; color: #555; }
+#qr-hint { font-size: 12px; color: #888; margin-bottom: 12px; }
+#qr-close { padding: 6px 18px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
