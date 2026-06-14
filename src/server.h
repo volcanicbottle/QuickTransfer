@@ -1,6 +1,8 @@
 #pragma once
+#include <atomic>
 #include <filesystem>
 #include <memory>
+#include <thread>
 #include "auth.h"
 #include "config.h"
 #include "discovery.h"
@@ -11,6 +13,7 @@
 class App {
  public:
   App(Config cfg, std::filesystem::path web_dir);
+  ~App();      // join 退出线程，确保其不会比 App 活得久
   bool run();  // 阻塞运行；绑定失败返回 false
   int port() const { return port_; }
   void request_stop();  // 触发优雅退出（信号处理/quit 路由调用）
@@ -34,4 +37,6 @@ class App {
   std::unique_ptr<Discovery> discovery_;
   httplib::Server svr_;
   int port_ = 0;
+  std::atomic_flag quitting_ = ATOMIC_FLAG_INIT;  // /api/quit 只起一次退出线程
+  std::thread quit_thread_;                       // ~App 中 join，杜绝 use-after-free
 };

@@ -55,6 +55,10 @@ bool App::run() {
 
 void App::request_stop() { svr_.stop(); }
 
+App::~App() {
+  if (quit_thread_.joinable()) quit_thread_.join();
+}
+
 void App::publish_message(const char* type, const Message& m) {
   bus_.publish(json{{"type", type}, {"message", to_json(m)}}.dump());
 }
@@ -371,7 +375,9 @@ void App::setup_routes() {
   svr_.Post("/api/quit", [this](const httplib::Request& req, httplib::Response& res) {
     if (!is_local(req)) { res.status = 403; return; }
     res.set_content("{\"ok\":true}", "application/json");
-    std::thread([this] { request_stop(); }).detach();  // 不能在 handler 内直接停
+    // 不能在 handler 内直接停（响应发不出去）。起一个由 App 持有的线程，
+    // ~App 会 join 它，保证它不会比 svr_ 活得久；atomic_flag 确保只起一次。
+    if (!quitting_.test_and_set()) quit_thread_ = std::thread([this] { request_stop(); });
   });
 
   setup_auth_routes();
